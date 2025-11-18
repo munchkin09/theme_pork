@@ -1,0 +1,8 @@
+/**
+ * CONFIGURACIÓN GLOBAL
+ */
+const TILE_SIZE = 64;
+const MAP_WIDTH = 5;
+const MAP_HEIGHT = 5;
+
+export { TILE_SIZE, MAP_WIDTH, MAP_HEIGHT };

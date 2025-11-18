@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Theme Park Tycoon - Phaser OOP</title>
+    <style>
+        body { margin: 0; background: #333; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: Arial, sans-serif; }
+        #ui-layer { position: absolute; top: 10px; left: 10px; background: rgba(255,255,255,0.9); padding: 10px; border-radius: 8px; pointer-events: auto; }
+        button { display: block; width: 150px; margin: 5px 0; padding: 8px; cursor: pointer; font-weight: bold; }
+        .info { font-size: 12px; color: #555; margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+    <div id="game-container"></div>
+
+    <div id="ui-layer">
+        <h3>Construcción</h3>
+        <div id="build-menu"></div>
+        <hr>
+        <h3>Mejoras</h3>
+        <div id="items-menu"></div>
+        <hr>
+        <div id="stats" class="info">Dinero: $1000</div>
+    </div>
+
+    <div id="debug-panel" style="position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,0.8); color: white; padding: 10px; font-family: monospace; font-size: 12px; max-height: 90vh; overflow-y: auto; border-radius: 8px; min-width: 250px;">
+        <h3 style="margin-top: 0;">Debug Info</h3>
+        <div id="debug-modifiers" style="margin-bottom: 10px;"></div>
+        <table id="debug-entities" border="1" style="border-collapse: collapse; width: 100%; border-color: #555;">
+            <thead>
+                <tr style="background: #333;">
+                    <th>Entidad</th>
+                    <th>Pos</th>
+                    <th>Base</th>
+                    <th>Bonus</th>
+                    <th>Total</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+
+</body>
+</html>
