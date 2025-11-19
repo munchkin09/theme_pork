@@ -18,7 +18,7 @@ class Attraction extends ParkEntity {
     onClick() {
         super.onClick();
         // Aquí podríamos abrir un menú de gestión
-        alert(`Atracción: ${this.name}\nEmoción: ${this.excitement}/10\nEstado: ${this.broken ? "Averiada" : "Operativa"}`);
+        this.scene.log(`Atracción: ${this.name} | Emoción: ${this.excitement}/10 | Estado: ${this.broken ? "Averiada" : "Operativa"}`);
     }
 
     tick() {
