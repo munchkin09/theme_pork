@@ -10,11 +10,15 @@ import { BuildDiscount } from '../entities/objects/BuildDiscount.js';
 import { UnlockTile } from '../entities/objects/UnlockTile.js';
 import { AttractionPremium } from '../entities/objects/AttractionPremium.js';
 import { AutoMaintenance } from '../entities/objects/AutoMaintenance.js';
+
 // ==========================================
 // ESCENA PRINCIPAL (CONTROLADOR)
 // ==========================================
 
 class MainScene extends Phaser.Scene {
+
+    timer;
+    totalTime = 12; // 2 minutos 
     constructor() {
         super({ key: 'MainScene' });
         this.gridManager = null;
@@ -28,7 +32,7 @@ class MainScene extends Phaser.Scene {
         this.buildDiscount = 1.0;
         this.attractionBonusMultiplier = 1.0;
         this.breakChance = 0.001;
-
+        
         // Items disponibles
         this.items = [
             new CostReduce(this),
@@ -51,25 +55,31 @@ class MainScene extends Phaser.Scene {
 
         // Referencias a botones de construcción
         this.buildButtons = [];
+
+        // Lógica de fin de juego
+        this.targetMoney = 800; // Objetivo de dinero
+        this.gameEnded = false;
     }
 
     create() {
         // Generar seed aleatorio para el mapa
         const seed = Math.floor(Math.random() * 1000000).toString();
         localStorage.setItem('mapSeed', seed);
-        // Inicializar Grid Manager
-        this.gridManager = new GridManager(MAP_WIDTH, MAP_HEIGHT, seed);
-
-        // Dibujar Grid visual (suelo)
-        this.createGridVisuals();
+        // Inicializar Grid Manager (ahora maneja la visualización con Tilemaps)
+        this.gridManager = new GridManager(this, MAP_WIDTH, MAP_HEIGHT, seed);
+        
+        // Loop de simulación (economía) - cada 1 segundo
+        this.timer = this.time.addEvent({
+            delay: 1000,
+            callback: this.updateTimerUI,
+            callbackScope: this,
+            loop: true
+        });
 
         // Input del Mouse
         this.input.on('pointermove', this.onPointerMove, this);
         this.input.on('pointerdown', this.onPointerDown, this);
 
-        // Loop de simulación del parque (cada 1 segundo)
-        this.time.addEvent({ delay: 1000, callback: this.simulationTick, callbackScope: this, loop: true });
-        
         // Referencia global para acceso desde UI HTML
         window.gameScene = this;
         window.selectBuildMode = (type) => this.selectBuildMode(type);
@@ -82,24 +92,20 @@ class MainScene extends Phaser.Scene {
         this.createBuildMenu();
     }
 
-    createGridVisuals() {
-        this.gridSprites = [];
-        const graphics = this.add.graphics();
-        graphics.lineStyle(1, 0xffffff, 0.2);
-
-        for (let y = 0; y < MAP_HEIGHT; y++) {
-            this.gridSprites[y] = [];
-            for (let x = 0; x < MAP_WIDTH; x++) {
-                // Determinar color basado en el estado de la tile
-                let color = 0x228b22; // Verde para vacío
-                if (this.gridManager.grid[y][x] === 'blocked') {
-                    color = 0x666666; // Gris para bloqueado
-                }
-                // Suelo base
-                const sprite = this.add.rectangle(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE, color).setOrigin(0).setStrokeStyle(1, 0x000000, 0.1);
-                this.gridSprites[y][x] = sprite;
-            }
+    update(time, _) {
+        if(this.gameEnded === true) return;
+        if(this.totalTime <= 0) {
+            this.endGame();
+            return;
         }
+        if (!this.lastTickTime) this.lastTickTime = 0;
+        if (time - this.lastTickTime >= 1000) {
+            this.simulationTick();
+            this.updateDebugPanel();
+            this.updateBuildMenu();
+            this.lastTickTime = time;
+        }
+        this.updateUI();
     }
 
     // --- Sistema de Interacción y Construcción ---
@@ -167,7 +173,7 @@ class MainScene extends Phaser.Scene {
 
         // 1. Validar fondos
         if (this.money < discountedCost) {
-            alert("Fondos insuficientes");
+            this.log("Fondos insuficientes para construir.");
             entity.destroy();
             return;
         }
@@ -191,6 +197,8 @@ class MainScene extends Phaser.Scene {
     // --- Ciclo de Juego (Simulación) ---
 
     simulationTick() {
+        if (this.gameEnded === true) return;
+
         // Ejecutar tick de items comprados
         this.purchasedItems.forEach(item => item.tick());
 
@@ -200,13 +208,12 @@ class MainScene extends Phaser.Scene {
 
             // Lógica global del parque (recolectar dinero de tiendas)
             if (entity instanceof Shop) {
-                const baseIncome = 5 + this.shopIncomeBonus;
+                const baseIncome = 5 + Math.floor(this.shopIncomeBonus);
                 const bonus = this.calculateNeighborBonus(entity.tileX, entity.tileY);
                 this.money += baseIncome + bonus;
+                this.log(`La tienda ${entity.name} generó $${baseIncome + bonus} (Base: $${baseIncome}, Bonus: $${bonus})`);
             }
         });
-        this.updateUI();
-        this.updateDebugPanel();
     }
 
     updateDebugPanel() {
@@ -279,7 +286,7 @@ class MainScene extends Phaser.Scene {
             const ny = ty + dir.dy;
 
             if (nx >= 0 && nx < MAP_WIDTH && ny >= 0 && ny < MAP_HEIGHT) {
-                const neighbor = this.gridManager.grid[ny][nx];
+                const neighbor = this.gridManager.getEntityAt(nx, ny);
                 if (neighbor instanceof Attraction) attractions++;
                 else if (neighbor instanceof Shop) shops++;
                 else if (neighbor instanceof Restroom) restrooms++;
@@ -287,12 +294,54 @@ class MainScene extends Phaser.Scene {
         });
 
         // Calcular bonus: atracciones dan más beneficio, con multiplicador
-        const bonus = (attractions * 2 * this.attractionBonusMultiplier) + shops * 1 + restrooms * 0.5;
+        const bonus = (attractions * 3 * this.attractionBonusMultiplier) + (shops * 2.0) + (restrooms * 1.0);
         return Math.floor(bonus); // Redondear hacia abajo para mantener enteros
+    }
+
+    updateTimerUI() {
+        if (!this.timer) return;
+
+        const minutes = Math.floor(this.totalTime / 60);
+        const seconds = Math.floor(this.totalTime % 60);
+        this.totalTime--;
+        const timeString = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+        const timerElement = document.getElementById('timer');
+        if (timerElement) {
+            timerElement.innerText = `Tiempo: ${timeString}`;
+            // Alerta visual cuando queda poco tiempo
+            if (this.totalTime <= 10) {
+                timerElement.style.color = '#ff0000';
+            } else {
+                timerElement.style.color = '#FFC107';
+            }
+        }
+    }
+
+    endGame() {
+        this.gameEnded = true;
+        this.timer.remove();
+        this.time.removeEvent(this.timer);
+        this.updateTimerUI(); // Asegurar que muestre 0:00
+        if (this.money >= this.targetMoney) {
+            this.log(`¡NIVEL SUPERADO! Has conseguido $${this.money} (Objetivo: $${this.targetMoney})`);
+        } else {
+            this.log(`¡TIEMPO AGOTADO! Te has quedado con $${this.money} (Objetivo: $${this.targetMoney}). Inténtalo de nuevo.`);
+        }
     }
 
     updateUI() {
         document.getElementById('stats').innerText = `Dinero: $${this.money} | Edificios: ${this.entities.length}`;
+        document.getElementById('goal').innerText = `Objetivo: $${this.targetMoney}`;
+    }
+
+    log(message) {
+        const consoleDiv = document.getElementById('game-console');
+        if (consoleDiv) {
+            const msgElement = document.createElement('div');
+            msgElement.innerText = `> ${message}`;
+            consoleDiv.appendChild(msgElement);
+            consoleDiv.scrollTop = consoleDiv.scrollHeight;
+        }
     }
 
     buyItem(id) {
@@ -300,7 +349,7 @@ class MainScene extends Phaser.Scene {
         if (!item) return;
 
         if (this.money < item.cost) {
-            alert("Fondos insuficientes");
+            this.log("Fondos insuficientes para comprar item.");
             return;
         }
 
@@ -309,28 +358,43 @@ class MainScene extends Phaser.Scene {
         const purchasedItem = new item.constructor(this);
         this.purchasedItems.push(purchasedItem);
         this.updateUI();
-        alert(`Comprado: ${item.name}`);
+        this.log(`Comprado: ${item.name}`);
     }
 
     unlockRandomTile() {
         for (let y = 0; y < MAP_HEIGHT; y++) {
             for (let x = 0; x < MAP_WIDTH; x++) {
-                if (this.gridManager.grid[y][x] === 'blocked') {
-                    this.gridManager.grid[y][x] = null;
-                    this.gridSprites[y][x].setFillStyle(0x228b22);
+                if (this.gridManager.isBlocked(x, y)) {
+                    this.gridManager.unlockTile(x, y);
+                    this.log("Terreno desbloqueado.");
                     return; // Desbloquear solo una
                 }
             }
         }
-        alert("No hay tiles bloqueadas para desbloquear");
+        this.log("No hay tiles bloqueadas para desbloquear.");
     }
 
     createItemsMenu() {
         const menu = document.getElementById('items-menu');
+        const tooltip = document.getElementById('custom-tooltip');
+
         this.items.forEach(item => {
             const button = document.createElement('button');
             button.innerText = `${item.name} ($${item.cost})`;
-            button.title = item.description;
+            // button.title = item.description; // Reemplazado por tooltip personalizado
+            
+            button.onmouseenter = () => {
+                tooltip.style.display = 'block';
+                tooltip.innerText = item.description;
+            };
+            button.onmousemove = (e) => {
+                tooltip.style.left = (e.pageX + 15) + 'px';
+                tooltip.style.top = (e.pageY + 15) + 'px';
+            };
+            button.onmouseleave = () => {
+                tooltip.style.display = 'none';
+            };
+
             button.onclick = () => window.buyItem(item.id);
             menu.appendChild(button);
         });
