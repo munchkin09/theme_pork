@@ -14,6 +14,7 @@ class Attraction extends ParkEntity {
         this.excitement = 10;
         this.capacity = 20;
         this.broken = false;
+        this.constructionTime = Date.now(); // Timestamp de construcción para decay temporal
     }
 
     onClick() {
