@@ -6,7 +6,8 @@ import {ParkEntity} from './ParkEntity.js';
 class Restroom extends ParkEntity {
     constructor(scene, x, y) {
         super(scene, x, y, 'service', {
-            width: 1, height: 1, cost: 100, name: "WC", color: 0x3388ff
+            width: 1, height: 1, cost: 100, name: "WC", 
+            texture: 'restroom', color: 0x3388ff
         });
 
         this.cleanliness = 100;

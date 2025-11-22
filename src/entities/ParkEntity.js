@@ -19,9 +19,16 @@ class ParkEntity extends Phaser.GameObjects.Container {
         this.cost = config.cost || 0;
         this.name = config.name || "Entidad";
 
-        // Renderizado base (un fondo genérico si no se sobrescribe)
-        this.baseSprite = scene.add.rectangle(0, 0, this.widthTiles * TILE_SIZE, this.heightTiles * TILE_SIZE, config.color);
-        this.baseSprite.setOrigin(0, 0);
+        // Renderizado base con sprite o textura si está disponible
+        if (config.texture && scene.textures.exists(config.texture)) {
+            this.baseSprite = scene.add.sprite(0, 0, config.texture);
+            this.baseSprite.setOrigin(0, 0);
+            this.baseSprite.setDisplaySize(this.widthTiles * TILE_SIZE, this.heightTiles * TILE_SIZE);
+        } else {
+            // Fallback a rectángulo de color si no hay textura
+            this.baseSprite = scene.add.rectangle(0, 0, this.widthTiles * TILE_SIZE, this.heightTiles * TILE_SIZE, config.color);
+            this.baseSprite.setOrigin(0, 0);
+        }
         this.add(this.baseSprite);
 
         // Etiqueta de texto
