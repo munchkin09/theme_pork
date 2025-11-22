@@ -3,13 +3,10 @@ import { Attraction } from '../../entities/Attraction.js';
 import { Shop } from '../../entities/Shop.js';
 import { Restroom } from '../../entities/Restroom.js'; 
 import { GridManager } from '../../grid_system/main.js';
+import { EconomyManager } from '../../economy_manager/manager.js';
 import { TILE_SIZE, MAP_WIDTH, MAP_HEIGHT } from '../../globals.js';
-import { CostReduce } from '../../entities/objects/CostReduce.js';
-import { IncomeBoost } from '../../entities/objects/IncomeBoost.js';
-import { BuildDiscount } from '../../entities/objects/BuildDiscount.js';
-import { UnlockTile } from '../../entities/objects/UnlockTile.js';
-import { AttractionPremium } from '../../entities/objects/AttractionPremium.js';
-import { AutoMaintenance } from '../../entities/objects/AutoMaintenance.js';
+import { generatePoolOfObjects } from '../../entities/objects/index.js';
+
 // ==========================================
 // ESCENA PRINCIPAL (CONTROLADOR)
 // ==========================================
@@ -17,7 +14,8 @@ import { AutoMaintenance } from '../../entities/objects/AutoMaintenance.js';
 class MainScene extends Phaser.Scene {
 
     timer;
-    totalTime = 12; // 2 minutos 
+    totalTime = 120; // 2 minutos
+    level = 0;
     constructor() {
         super({ key: 'MainScene' });
         this.gridManager = null;
@@ -33,14 +31,7 @@ class MainScene extends Phaser.Scene {
         this.breakChance = 0.001;
         
         // Items disponibles
-        this.items = [
-            new CostReduce(this),
-            new IncomeBoost(this),
-            new BuildDiscount(this),
-            new UnlockTile(this),
-            new AttractionPremium(this),
-            new AutoMaintenance(this)
-        ];
+        this.items = generatePoolOfObjects();
 
         // Items comprados
         this.purchasedItems = [];
@@ -66,6 +57,9 @@ class MainScene extends Phaser.Scene {
         localStorage.setItem('mapSeed', seed);
         // Inicializar Grid Manager (ahora maneja la visualización con Tilemaps)
         this.gridManager = new GridManager(this, MAP_WIDTH, MAP_HEIGHT, seed);
+        
+        // Inicializar Economy Manager
+        this.economyManager = new EconomyManager(this.gridManager, this.level);
         
         // Loop de simulación (economía) - cada 1 segundo
         this.timer = this.time.addEvent({
@@ -115,16 +109,36 @@ class MainScene extends Phaser.Scene {
         // Limpiar cursor anterior
         if (this.cursorObj) this.cursorObj.destroy();
 
-        // Crear "fantasma" visual según tipo
-        let color = 0xffffff;
+        // Crear "fantasma" visual según tipo usando texturas
+        let texture = null;
         let w = 1, h = 1;
+        let color = 0xffffff;
 
         // Factory simple para configuración visual del cursor
-        if (type === 'attraction') { w = 2; h = 2; color = 0xff5733; }
-        else if (type === 'shop') { color = 0x33ff57; }
-        else if (type === 'restroom') { color = 0x3388ff; }
+        if (type === 'attraction') { 
+            w = 2; h = 2; 
+            texture = 'rollercoaster';
+            color = 0xff5733;
+        }
+        else if (type === 'shop') { 
+            texture = 'shop_fallback';
+            color = 0x33ff57;
+        }
+        else if (type === 'restroom') { 
+            texture = 'restroom';
+            color = 0x3388ff;
+        }
 
-        this.cursorObj = this.add.rectangle(0, 0, w * TILE_SIZE, h * TILE_SIZE, color, 0.5).setOrigin(0);
+        // Crear el cursor usando sprite si hay textura disponible
+        if (texture && this.textures.exists(texture)) {
+            this.cursorObj = this.add.sprite(0, 0, texture).setOrigin(0);
+            this.cursorObj.setDisplaySize(w * TILE_SIZE, h * TILE_SIZE);
+            this.cursorObj.setAlpha(0.7);
+        } else {
+            // Fallback a rectángulo si no hay textura
+            this.cursorObj = this.add.rectangle(0, 0, w * TILE_SIZE, h * TILE_SIZE, color, 0.5).setOrigin(0);
+            this.cursorObj.originalColor = color; // Guardar color original
+        }
     }
 
     onPointerMove(pointer) {
@@ -142,7 +156,25 @@ class MainScene extends Phaser.Scene {
         const h = (this.currentBuildType === 'attraction') ? 2 : 1;
 
         const isValid = this.gridManager.canPlace(tx, ty, w, h);
-        this.cursorObj.fillColor = isValid ? this.cursorObj.fillColor : 0xff0000; // Rojo si no se puede
+        
+        // Cambiar tinte del cursor para indicar validez
+        if (this.cursorObj) {
+            if (this.cursorObj.type === 'Sprite') {
+                // Para sprites usamos setTint
+                if (isValid) {
+                    this.cursorObj.setTint(0xffffff); // Blanco normal
+                } else {
+                    this.cursorObj.setTint(0xff0000); // Rojo si no se puede
+                }
+            } else if (this.cursorObj.type === 'Rectangle') {
+                // Para rectángulos usamos setFillStyle
+                if (isValid) {
+                    this.cursorObj.setFillStyle(this.cursorObj.originalColor || 0xffffff, 0.5);
+                } else {
+                    this.cursorObj.setFillStyle(0xff0000, 0.5); // Rojo si no se puede
+                }
+            }
+        }
     }
 
     onPointerDown(pointer) {
@@ -212,89 +244,16 @@ class MainScene extends Phaser.Scene {
                 this.money += baseIncome + bonus;
                 this.log(`La tienda ${entity.name} generó $${baseIncome + bonus} (Base: $${baseIncome}, Bonus: $${bonus})`);
             }
-        });
-    }
-
-    updateDebugPanel() {
-        // Actualizar modificadores globales
-        const modifiersDiv = document.getElementById('debug-modifiers');
-        if (modifiersDiv) {
-            modifiersDiv.innerHTML = `
-                <div><strong>Modificadores Globales:</strong></div>
-                <div>Shop Income Bonus: <span style="color: #33ff57">+${this.shopIncomeBonus}</span></div>
-                <div>Build Discount: <span style="color: #3388ff">${Math.round((1 - this.buildDiscount) * 100)}%</span></div>
-                <div>Attraction Multiplier: <span style="color: #ff5733">x${this.attractionBonusMultiplier}</span></div>
-                <div>Break Chance: <span style="color: #ffcc00">${(this.breakChance * 100).toFixed(2)}%</span></div>
-            `;
-        }
-
-        // Actualizar tabla de entidades (Tiendas)
-        const tbody = document.querySelector('#debug-entities tbody');
-        if (tbody) {
-            tbody.innerHTML = '';
-            let totalIncome = 0;
             
-            this.entities.forEach(entity => {
-                if (entity instanceof Shop) {
-                    const base = 5 + this.shopIncomeBonus;
-                    const bonus = this.calculateNeighborBonus(entity.tileX, entity.tileY);
-                    const total = base + bonus;
-                    totalIncome += total;
-
-                    const row = `
-                        <tr>
-                            <td>${entity.name}</td>
-                            <td>${entity.tileX},${entity.tileY}</td>
-                            <td>${base}</td>
-                            <td>${bonus}</td>
-                            <td>${total}</td>
-                        </tr>
-                    `;
-                    tbody.insertAdjacentHTML('beforeend', row);
+            // MR-1 & MR-2: Lógica de ingresos para montañas rusas con excitement y decay temporal
+            if (entity instanceof Attraction) {
+                const incomeData = this.economyManager.calculateAttractionIncome(entity);
+                if (incomeData.final > 0) {
+                    this.money += incomeData.final;
+                    this.log(`${entity.name} generó $${incomeData.final} (Base: $${incomeData.base}, Decay: ${Math.round(incomeData.decayFactor * 100)}%, Edad: ${incomeData.age}s)`);
                 }
-            });
-            
-            // Fila de total
-            if (this.entities.some(e => e instanceof Shop)) {
-                const totalRow = `
-                    <tr style="font-weight:bold; background: #444;">
-                        <td colspan="4" style="text-align: right; padding-right: 5px;">TOTAL:</td>
-                        <td>${totalIncome}</td>
-                    </tr>
-                `;
-                tbody.insertAdjacentHTML('beforeend', totalRow);
-            } else {
-                 tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color: #888;">Sin tiendas</td></tr>';
-            }
-        }
-    }
-
-    calculateNeighborBonus(tx, ty) {
-        let attractions = 0, shops = 0, restrooms = 0;
-
-        // Direcciones: arriba, abajo, izquierda, derecha
-        const directions = [
-            { dx: 0, dy: -1 }, // arriba
-            { dx: 0, dy: 1 },  // abajo
-            { dx: -1, dy: 0 }, // izquierda
-            { dx: 1, dy: 0 }   // derecha
-        ];
-
-        directions.forEach(dir => {
-            const nx = tx + dir.dx;
-            const ny = ty + dir.dy;
-
-            if (nx >= 0 && nx < MAP_WIDTH && ny >= 0 && ny < MAP_HEIGHT) {
-                const neighbor = this.gridManager.getEntityAt(nx, ny);
-                if (neighbor instanceof Attraction) attractions++;
-                else if (neighbor instanceof Shop) shops++;
-                else if (neighbor instanceof Restroom) restrooms++;
             }
         });
-
-        // Calcular bonus: atracciones dan más beneficio, con multiplicador
-        const bonus = (attractions * 3 * this.attractionBonusMultiplier) + (shops * 2.0) + (restrooms * 1.0);
-        return Math.floor(bonus); // Redondear hacia abajo para mantener enteros
     }
 
     updateTimerUI() {
@@ -331,6 +290,77 @@ class MainScene extends Phaser.Scene {
     updateUI() {
         document.getElementById('stats').innerText = `Dinero: $${this.money} | Edificios: ${this.entities.length}`;
         document.getElementById('goal').innerText = `Objetivo: $${this.targetMoney}`;
+    }
+
+    updateDebugPanel() {
+        // Actualizar modificadores globales
+        const modifiersDiv = document.getElementById('debug-modifiers');
+        if (modifiersDiv) {
+            modifiersDiv.innerHTML = `
+                <div><strong>Modificadores Globales:</strong></div>
+                <div>Shop Income Bonus: <span style="color: #33ff57">+${this.shopIncomeBonus}</span></div>
+                <div>Build Discount: <span style="color: #3388ff">${Math.round((1 - this.buildDiscount) * 100)}%</span></div>
+                <div>Attraction Multiplier: <span style="color: #ff5733">x${this.attractionBonusMultiplier}</span></div>
+                <div>Break Chance: <span style="color: #ffcc00">${(this.breakChance * 100).toFixed(2)}%</span></div>
+            `;
+        }
+
+        // Actualizar tabla de entidades (Tiendas y Atracciones)
+        const tbody = document.querySelector('#debug-entities tbody');
+        if (tbody) {
+            tbody.innerHTML = '';
+            let totalIncome = 0;
+            let hasEntities = false;
+            
+            this.entities.forEach(entity => {
+                if (entity instanceof Shop) {
+                    const base = 5 + this.shopIncomeBonus;
+                    const bonus = this.calculateNeighborBonus(entity.tileX, entity.tileY);
+                    const total = base + bonus;
+                    totalIncome += total;
+                    hasEntities = true;
+
+                    const row = `
+                        <tr>
+                            <td>${entity.name}</td>
+                            <td>${entity.tileX},${entity.tileY}</td>
+                            <td>${base}</td>
+                            <td>${bonus}</td>
+                            <td>${total}</td>
+                        </tr>
+                    `;
+                    tbody.insertAdjacentHTML('beforeend', row);
+                } else if (entity instanceof Attraction) {
+                    const incomeData = this.economyManager.calculateAttractionIncome(entity);
+                    totalIncome += incomeData.final;
+                    hasEntities = true;
+
+                    const row = `
+                        <tr style="background: #2a2a2a;">
+                            <td>${entity.name}</td>
+                            <td>${entity.tileX},${entity.tileY}</td>
+                            <td>${incomeData.base} (E:${entity.excitement})</td>
+                            <td>${Math.round(incomeData.decayFactor * 100)}%</td>
+                            <td>${incomeData.final}</td>
+                        </tr>
+                    `;
+                    tbody.insertAdjacentHTML('beforeend', row);
+                }
+            });
+            
+            // Fila de total
+            if (hasEntities) {
+                const totalRow = `
+                    <tr style="font-weight:bold; background: #444;">
+                        <td colspan="4" style="text-align: right; padding-right: 5px;">TOTAL:</td>
+                        <td>${totalIncome}</td>
+                    </tr>
+                `;
+                tbody.insertAdjacentHTML('beforeend', totalRow);
+            } else {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color: #888;">Sin entidades generadoras de ingresos</td></tr>';
+            }
+        }
     }
 
     log(message) {
@@ -418,6 +448,11 @@ class MainScene extends Phaser.Scene {
             const discountedCost = Math.floor(option.cost * this.buildDiscount);
             button.innerText = `${option.name} ($${discountedCost})`;
         });
+    }
+
+    // Delegado al EconomyManager para cálculo de bonus de vecindario
+    calculateNeighborBonus(tx, ty) {
+        return this.economyManager.calculateNeighborBonus(tx, ty);
     }
 }
 
