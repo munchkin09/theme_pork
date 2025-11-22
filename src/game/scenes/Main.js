@@ -17,7 +17,7 @@ import { AutoMaintenance } from '../../entities/objects/AutoMaintenance.js';
 class MainScene extends Phaser.Scene {
 
     timer;
-    totalTime = 12; // 2 minutos 
+    totalTime = 120; // 2 minutos 
     constructor() {
         super({ key: 'MainScene' });
         this.gridManager = null;
@@ -115,16 +115,36 @@ class MainScene extends Phaser.Scene {
         // Limpiar cursor anterior
         if (this.cursorObj) this.cursorObj.destroy();
 
-        // Crear "fantasma" visual según tipo
-        let color = 0xffffff;
+        // Crear "fantasma" visual según tipo usando texturas
+        let texture = null;
         let w = 1, h = 1;
+        let color = 0xffffff;
 
         // Factory simple para configuración visual del cursor
-        if (type === 'attraction') { w = 2; h = 2; color = 0xff5733; }
-        else if (type === 'shop') { color = 0x33ff57; }
-        else if (type === 'restroom') { color = 0x3388ff; }
+        if (type === 'attraction') { 
+            w = 2; h = 2; 
+            texture = 'rollercoaster';
+            color = 0xff5733;
+        }
+        else if (type === 'shop') { 
+            texture = 'shop_fallback';
+            color = 0x33ff57;
+        }
+        else if (type === 'restroom') { 
+            texture = 'restroom';
+            color = 0x3388ff;
+        }
 
-        this.cursorObj = this.add.rectangle(0, 0, w * TILE_SIZE, h * TILE_SIZE, color, 0.5).setOrigin(0);
+        // Crear el cursor usando sprite si hay textura disponible
+        if (texture && this.textures.exists(texture)) {
+            this.cursorObj = this.add.sprite(0, 0, texture).setOrigin(0);
+            this.cursorObj.setDisplaySize(w * TILE_SIZE, h * TILE_SIZE);
+            this.cursorObj.setAlpha(0.7);
+        } else {
+            // Fallback a rectángulo si no hay textura
+            this.cursorObj = this.add.rectangle(0, 0, w * TILE_SIZE, h * TILE_SIZE, color, 0.5).setOrigin(0);
+            this.cursorObj.originalColor = color; // Guardar color original
+        }
     }
 
     onPointerMove(pointer) {
@@ -142,7 +162,25 @@ class MainScene extends Phaser.Scene {
         const h = (this.currentBuildType === 'attraction') ? 2 : 1;
 
         const isValid = this.gridManager.canPlace(tx, ty, w, h);
-        this.cursorObj.fillColor = isValid ? this.cursorObj.fillColor : 0xff0000; // Rojo si no se puede
+        
+        // Cambiar tinte del cursor para indicar validez
+        if (this.cursorObj) {
+            if (this.cursorObj.type === 'Sprite') {
+                // Para sprites usamos setTint
+                if (isValid) {
+                    this.cursorObj.setTint(0xffffff); // Blanco normal
+                } else {
+                    this.cursorObj.setTint(0xff0000); // Rojo si no se puede
+                }
+            } else if (this.cursorObj.type === 'Rectangle') {
+                // Para rectángulos usamos setFillStyle
+                if (isValid) {
+                    this.cursorObj.setFillStyle(this.cursorObj.originalColor || 0xffffff, 0.5);
+                } else {
+                    this.cursorObj.setFillStyle(0xff0000, 0.5); // Rojo si no se puede
+                }
+            }
+        }
     }
 
     onPointerDown(pointer) {
@@ -215,60 +253,6 @@ class MainScene extends Phaser.Scene {
         });
     }
 
-    updateDebugPanel() {
-        // Actualizar modificadores globales
-        const modifiersDiv = document.getElementById('debug-modifiers');
-        if (modifiersDiv) {
-            modifiersDiv.innerHTML = `
-                <div><strong>Modificadores Globales:</strong></div>
-                <div>Shop Income Bonus: <span style="color: #33ff57">+${this.shopIncomeBonus}</span></div>
-                <div>Build Discount: <span style="color: #3388ff">${Math.round((1 - this.buildDiscount) * 100)}%</span></div>
-                <div>Attraction Multiplier: <span style="color: #ff5733">x${this.attractionBonusMultiplier}</span></div>
-                <div>Break Chance: <span style="color: #ffcc00">${(this.breakChance * 100).toFixed(2)}%</span></div>
-            `;
-        }
-
-        // Actualizar tabla de entidades (Tiendas)
-        const tbody = document.querySelector('#debug-entities tbody');
-        if (tbody) {
-            tbody.innerHTML = '';
-            let totalIncome = 0;
-            
-            this.entities.forEach(entity => {
-                if (entity instanceof Shop) {
-                    const base = 5 + this.shopIncomeBonus;
-                    const bonus = this.calculateNeighborBonus(entity.tileX, entity.tileY);
-                    const total = base + bonus;
-                    totalIncome += total;
-
-                    const row = `
-                        <tr>
-                            <td>${entity.name}</td>
-                            <td>${entity.tileX},${entity.tileY}</td>
-                            <td>${base}</td>
-                            <td>${bonus}</td>
-                            <td>${total}</td>
-                        </tr>
-                    `;
-                    tbody.insertAdjacentHTML('beforeend', row);
-                }
-            });
-            
-            // Fila de total
-            if (this.entities.some(e => e instanceof Shop)) {
-                const totalRow = `
-                    <tr style="font-weight:bold; background: #444;">
-                        <td colspan="4" style="text-align: right; padding-right: 5px;">TOTAL:</td>
-                        <td>${totalIncome}</td>
-                    </tr>
-                `;
-                tbody.insertAdjacentHTML('beforeend', totalRow);
-            } else {
-                 tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color: #888;">Sin tiendas</td></tr>';
-            }
-        }
-    }
-
     calculateNeighborBonus(tx, ty) {
         let attractions = 0, shops = 0, restrooms = 0;
 
@@ -331,6 +315,60 @@ class MainScene extends Phaser.Scene {
     updateUI() {
         document.getElementById('stats').innerText = `Dinero: $${this.money} | Edificios: ${this.entities.length}`;
         document.getElementById('goal').innerText = `Objetivo: $${this.targetMoney}`;
+    }
+
+    updateDebugPanel() {
+        // Actualizar modificadores globales
+        const modifiersDiv = document.getElementById('debug-modifiers');
+        if (modifiersDiv) {
+            modifiersDiv.innerHTML = `
+                <div><strong>Modificadores Globales:</strong></div>
+                <div>Shop Income Bonus: <span style="color: #33ff57">+${this.shopIncomeBonus}</span></div>
+                <div>Build Discount: <span style="color: #3388ff">${Math.round((1 - this.buildDiscount) * 100)}%</span></div>
+                <div>Attraction Multiplier: <span style="color: #ff5733">x${this.attractionBonusMultiplier}</span></div>
+                <div>Break Chance: <span style="color: #ffcc00">${(this.breakChance * 100).toFixed(2)}%</span></div>
+            `;
+        }
+
+        // Actualizar tabla de entidades (Tiendas)
+        const tbody = document.querySelector('#debug-entities tbody');
+        if (tbody) {
+            tbody.innerHTML = '';
+            let totalIncome = 0;
+            
+            this.entities.forEach(entity => {
+                if (entity instanceof Shop) {
+                    const base = 5 + this.shopIncomeBonus;
+                    const bonus = this.calculateNeighborBonus(entity.tileX, entity.tileY);
+                    const total = base + bonus;
+                    totalIncome += total;
+
+                    const row = `
+                        <tr>
+                            <td>${entity.name}</td>
+                            <td>${entity.tileX},${entity.tileY}</td>
+                            <td>${base}</td>
+                            <td>${bonus}</td>
+                            <td>${total}</td>
+                        </tr>
+                    `;
+                    tbody.insertAdjacentHTML('beforeend', row);
+                }
+            });
+            
+            // Fila de total
+            if (this.entities.some(e => e instanceof Shop)) {
+                const totalRow = `
+                    <tr style="font-weight:bold; background: #444;">
+                        <td colspan="4" style="text-align: right; padding-right: 5px;">TOTAL:</td>
+                        <td>${totalIncome}</td>
+                    </tr>
+                `;
+                tbody.insertAdjacentHTML('beforeend', totalRow);
+            } else {
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color: #888;">Sin tiendas</td></tr>';
+            }
+        }
     }
 
     log(message) {

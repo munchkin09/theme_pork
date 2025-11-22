@@ -13,34 +13,14 @@ class GridManager {
         this.width = width;
         this.height = height;
 
-        // 1. Generar textura para los tiles si no existe
-        if (!scene.textures.exists('tiles')) {
-            const graphics = scene.make.graphics();
-            
-            // Tile 0: Suelo (Verde)
-            graphics.fillStyle(0x228b22);
-            graphics.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
-            graphics.lineStyle(1, 0x000000, 0.1);
-            graphics.strokeRect(0, 0, TILE_SIZE, TILE_SIZE);
-            
-            // Tile 1: Bloqueado (Gris)
-            graphics.fillStyle(0x666666);
-            graphics.fillRect(TILE_SIZE, 0, TILE_SIZE, TILE_SIZE);
-            graphics.lineStyle(1, 0x000000, 0.1);
-            graphics.strokeRect(TILE_SIZE, 0, TILE_SIZE, TILE_SIZE);
+        // 1. Create terrain sprites container instead of tilemap
+        this.terrainLayer = scene.add.container(0, 0);
+        this.terrainSprites = Array(height).fill(null).map(() => Array(width).fill(null));
 
-            graphics.generateTexture('tiles', TILE_SIZE * 2, TILE_SIZE);
-        }
-
-        // 2. Crear Tilemap y Layer
-        this.map = scene.make.tilemap({ tileWidth: TILE_SIZE, tileHeight: TILE_SIZE, width: width, height: height });
-        const tileset = this.map.addTilesetImage('tiles', 'tiles', TILE_SIZE, TILE_SIZE);
-        this.layer = this.map.createBlankLayer('Ground', tileset);
-
-        // 3. Matriz para entidades (objetos del juego sobre el suelo)
+        // 2. Matriz para entidades (objetos del juego sobre el suelo)
         this.entityGrid = Array(height).fill(null).map(() => Array(width).fill(null));
 
-        // 4. Generar mapa
+        // 3. Generar mapa
         this.generateRandomBlockedTiles(seed);
     }
 
@@ -50,11 +30,29 @@ class GridManager {
         
         for (let y = 0; y < this.height; y++) {
             for (let x = 0; x < this.width; x++) {
-                if (random() < blockChance) {
-                    this.layer.putTileAt(1, x, y); // Index 1 = Bloqueado
+                const isBlocked = random() < blockChance;
+                const textureName = isBlocked ? 'blocked' : 'grass';
+                
+                // Crear sprite para cada tile
+                let sprite;
+                if (this.scene.textures.exists(textureName)) {
+                    sprite = this.scene.add.sprite(x * TILE_SIZE, y * TILE_SIZE, textureName);
                 } else {
-                    this.layer.putTileAt(0, x, y); // Index 0 = Suelo
+                    // Fallback si no existe la textura
+                    sprite = this.scene.add.rectangle(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE, 
+                        isBlocked ? 0x666666 : 0x228b22);
                 }
+                
+                sprite.setOrigin(0, 0);
+                sprite.setDisplaySize(TILE_SIZE, TILE_SIZE);
+                
+                // Almacenar referencia del sprite y si está bloqueado
+                this.terrainSprites[y][x] = {
+                    sprite: sprite,
+                    blocked: isBlocked
+                };
+                
+                this.terrainLayer.add(sprite);
             }
         }
     }
@@ -85,8 +83,7 @@ class GridManager {
         for (let y = ty; y < ty + height; y++) {
             for (let x = tx; x < tx + width; x++) {
                 // Chequear tile bloqueado
-                const tile = this.layer.getTileAt(x, y);
-                if (tile && tile.index === 1) {
+                if (this.terrainSprites[y] && this.terrainSprites[y][x] && this.terrainSprites[y][x].blocked) {
                     return false;
                 }
                 // Chequear entidad
@@ -114,12 +111,25 @@ class GridManager {
 
     // Métodos auxiliares para interacción
     isBlocked(x, y) {
-        const tile = this.layer.getTileAt(x, y);
-        return tile && tile.index === 1;
+        if (y >= 0 && y < this.height && x >= 0 && x < this.width) {
+            return this.terrainSprites[y][x] && this.terrainSprites[y][x].blocked;
+        }
+        return false;
     }
 
     unlockTile(x, y) {
-        this.layer.putTileAt(0, x, y); // Cambiar a suelo (Verde)
+        if (y >= 0 && y < this.height && x >= 0 && x < this.width && this.terrainSprites[y][x]) {
+            // Cambiar sprite a grass y marcar como no bloqueado
+            const tileData = this.terrainSprites[y][x];
+            tileData.blocked = false;
+            
+            if (this.scene.textures.exists('grass')) {
+                tileData.sprite.setTexture('grass');
+            } else {
+                // Fallback color for grass
+                tileData.sprite.setFillStyle(0x228b22);
+            }
+        }
     }
 
     getEntityAt(x, y) {
