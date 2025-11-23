@@ -16,7 +16,7 @@ class MainScene extends Phaser.Scene {
 
     timer;
     totalTime = 120; // 2 minutos
-    level = 0;
+    level = 2;
     constructor() {
         super({ key: 'MainScene' });
         this.gridManager = null;
@@ -58,7 +58,7 @@ class MainScene extends Phaser.Scene {
         const seed = Math.floor(Math.random() * 1000000).toString();
         localStorage.setItem('mapSeed', seed);
         // Inicializar Grid Manager (ahora maneja la visualización con Tilemaps)
-        this.gridManager = new GridManager(this, MAP_WIDTH, MAP_HEIGHT, seed);
+        this.gridManager = new GridManager(this, MAP_WIDTH + this.level, MAP_HEIGHT + this.level, seed);
         
         // Inicializar Economy Manager
         this.economyManager = new EconomyManager(this.gridManager, this.level);

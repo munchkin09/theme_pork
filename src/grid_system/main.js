@@ -1,6 +1,5 @@
 
 
-import Phaser from 'phaser';
 import { TILE_SIZE } from '../globals.js';
 
 // ==========================================
@@ -12,7 +11,8 @@ class GridManager {
         this.scene = scene;
         this.width = width;
         this.height = height;
-
+        
+        console.log(`GridManager: Inicializando mapa de ${width}x${height} con semilla "${seed}"`);
         // 1. Create terrain sprites container instead of tilemap
         this.terrainLayer = scene.add.container(0, 0);
         this.terrainSprites = Array(height).fill(null).map(() => Array(width).fill(null));
