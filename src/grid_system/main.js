@@ -1,6 +1,5 @@
 
 
-import Phaser from 'phaser';
 import { TILE_SIZE } from '../globals.js';
 
 // ==========================================
@@ -12,7 +11,8 @@ class GridManager {
         this.scene = scene;
         this.width = width;
         this.height = height;
-
+        
+        console.log(`GridManager: Inicializando mapa de ${width}x${height} con semilla "${seed}"`);
         // 1. Create terrain sprites container instead of tilemap
         this.terrainLayer = scene.add.container(0, 0);
         this.terrainSprites = Array(height).fill(null).map(() => Array(width).fill(null));
@@ -20,7 +20,10 @@ class GridManager {
         // 2. Matriz para entidades (objetos del juego sobre el suelo)
         this.entityGrid = Array(height).fill(null).map(() => Array(width).fill(null));
 
-        // 3. Generar mapa
+        // 3. Crear tooltip para información de casillas
+        this.tooltip = scene.add.text(0, 0, '', { fontSize: '14px', backgroundColor: '#000000', color: '#ffffff', padding: {x:5, y:5} }).setVisible(false).setDepth(1000);
+
+        // 4. Generar mapa
         this.generateRandomBlockedTiles(seed);
     }
 
@@ -45,6 +48,11 @@ class GridManager {
                 
                 sprite.setOrigin(0, 0);
                 sprite.setDisplaySize(TILE_SIZE, TILE_SIZE);
+                
+                // Hacer interactiva la casilla para tooltips
+                sprite.setInteractive();
+                sprite.on('pointerover', () => this.showTooltip(x, y));
+                sprite.on('pointerout', () => this.hideTooltip());
                 
                 // Almacenar referencia del sprite y si está bloqueado
                 this.terrainSprites[y][x] = {
@@ -137,6 +145,28 @@ class GridManager {
             return this.entityGrid[y][x];
         }
         return null;
+    }
+
+    showTooltip(tx, ty) {
+        const tileData = this.terrainSprites[ty][tx];
+        let info = `Casilla (${tx}, ${ty})\n`;
+        if (tileData.blocked) {
+            info += 'Estado: Bloqueado\nNo se puede construir aquí.';
+        } else {
+            const entity = this.getEntityAt(tx, ty);
+            if (entity) {
+                info += `Estado: Ocupado\nEntidad: ${entity.constructor.name}`;
+            } else {
+                info += 'Estado: Libre\nSe puede construir aquí.';
+            }
+        }
+        this.tooltip.setText(info);
+        this.tooltip.setPosition(tx * TILE_SIZE + TILE_SIZE / 2 - this.tooltip.width / 2, ty * TILE_SIZE - this.tooltip.height - 5);
+        this.tooltip.setVisible(true);
+    }
+
+    hideTooltip() {
+        this.tooltip.setVisible(false);
     }
 }
 

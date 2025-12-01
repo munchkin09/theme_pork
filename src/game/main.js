@@ -7,8 +7,8 @@ import { TILE_SIZE, MAP_WIDTH, MAP_HEIGHT } from '../globals.js';
 // Configuración de Phaser
 const config = {
     type: Phaser.AUTO,
-    width: MAP_WIDTH * TILE_SIZE,
-    height: MAP_HEIGHT * TILE_SIZE,
+    width: "50%",
+    height: "100%",
     parent: 'phaser-game',
     backgroundColor: '#2d2d2d',
     scene: [Preloader, MainScene]
@@ -17,7 +17,7 @@ const config = {
 const StartGame = (parent) => {
     const gameConfig = { ...config, parent };
     const game = new Phaser.Game(gameConfig);
-    // Start with MainScene scene
+    // Start with Preloader scene
     game.scene.start('^Preloader');
     return game;
 }

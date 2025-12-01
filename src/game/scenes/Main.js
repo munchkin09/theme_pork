@@ -1,7 +1,8 @@
 import Phaser from 'phaser';
 import { Attraction } from '../../entities/Attraction.js';
 import { Shop } from '../../entities/Shop.js';
-import { Restroom } from '../../entities/Restroom.js'; 
+import { Restroom } from '../../entities/Restroom.js';
+import { NeonSign } from '../../entities/NeonSign.js'; 
 import { GridManager } from '../../grid_system/main.js';
 import { EconomyManager } from '../../economy_manager/manager.js';
 import { TILE_SIZE, MAP_WIDTH, MAP_HEIGHT } from '../../globals.js';
@@ -15,7 +16,7 @@ class MainScene extends Phaser.Scene {
 
     timer;
     totalTime = 120; // 2 minutos
-    level = 0;
+    level = 2;
     constructor() {
         super({ key: 'MainScene' });
         this.gridManager = null;
@@ -40,7 +41,8 @@ class MainScene extends Phaser.Scene {
         this.buildOptions = [
             { name: 'Montaña Rusa', cost: 500, type: 'attraction' },
             { name: 'Tienda de Burgers', cost: 200, type: 'shop' },
-            { name: 'Aseo / Urinario', cost: 100, type: 'restroom' }
+            { name: 'Aseo / Urinario', cost: 100, type: 'restroom' },
+            { name: 'Señal de Neón', cost: 150, type: 'neon' }
         ];
 
         // Referencias a botones de construcción
@@ -56,7 +58,7 @@ class MainScene extends Phaser.Scene {
         const seed = Math.floor(Math.random() * 1000000).toString();
         localStorage.setItem('mapSeed', seed);
         // Inicializar Grid Manager (ahora maneja la visualización con Tilemaps)
-        this.gridManager = new GridManager(this, MAP_WIDTH, MAP_HEIGHT, seed);
+        this.gridManager = new GridManager(this, MAP_WIDTH + this.level, MAP_HEIGHT + this.level, seed);
         
         // Inicializar Economy Manager
         this.economyManager = new EconomyManager(this.gridManager, this.level);
@@ -128,6 +130,10 @@ class MainScene extends Phaser.Scene {
             texture = 'restroom';
             color = 0x3388ff;
         }
+        else if (type === 'neon') { 
+            texture = 'neon_sign';
+            color = 0xff00ff;
+        }
 
         // Crear el cursor usando sprite si hay textura disponible
         if (texture && this.textures.exists(texture)) {
@@ -195,6 +201,7 @@ class MainScene extends Phaser.Scene {
             case 'attraction': entity = new Attraction(this, 0, 0); break;
             case 'shop': entity = new Shop(this, 0, 0); break;
             case 'restroom': entity = new Restroom(this, 0, 0); break;
+            case 'neon': entity = new NeonSign(this, 0, 0); break;
         }
 
         if (!entity) return;
@@ -230,6 +237,9 @@ class MainScene extends Phaser.Scene {
     simulationTick() {
         if (this.gameEnded === true) return;
 
+        // GE-2: Ejecutar tick económico del sistema de modificadores
+        this.economyManager.executeTick();
+
         // Ejecutar tick de items comprados
         this.purchasedItems.forEach(item => item.tick());
 
@@ -250,7 +260,23 @@ class MainScene extends Phaser.Scene {
                 const incomeData = this.economyManager.calculateAttractionIncome(entity);
                 if (incomeData.final > 0) {
                     this.money += incomeData.final;
-                    this.log(`${entity.name} generó $${incomeData.final} (Base: $${incomeData.base}, Decay: ${Math.round(incomeData.decayFactor * 100)}%, Edad: ${incomeData.age}s)`);
+                    let logMessage = `${entity.name} generó $${incomeData.final} (Base: $${incomeData.base}, Decay: ${Math.round(incomeData.decayFactor * 100)}%, Edad: ${incomeData.age}s`;
+                    if (incomeData.diversityBonus > 0) {
+                        logMessage += `, Bonus Diversidad: +$${incomeData.diversityBonus}`;
+                    }
+                    logMessage += ')';
+                    this.log(logMessage);
+                }
+            }
+            
+            // AS-3: Lógica de ingresos para aseos con bonus por doble proximidad
+            if (entity instanceof Restroom) {
+                const incomeData = this.economyManager.calculateRestroomIncome(entity);
+                if (incomeData.final > 0) {
+                    this.money += incomeData.final;
+                    if (incomeData.doubleProximityBonus > 0) {
+                        this.log(`${entity.name} generó $${incomeData.final} (Base: $${incomeData.base}, Bonus Proximidad: $${incomeData.doubleProximityBonus})`);
+                    }
                 }
             }
         });
@@ -296,12 +322,20 @@ class MainScene extends Phaser.Scene {
         // Actualizar modificadores globales
         const modifiersDiv = document.getElementById('debug-modifiers');
         if (modifiersDiv) {
+            // GE-2: Obtener información de modificadores económicos
+            const modifierInfo = this.economyManager.getModifierDebugInfo();
+            
             modifiersDiv.innerHTML = `
                 <div><strong>Modificadores Globales:</strong></div>
                 <div>Shop Income Bonus: <span style="color: #33ff57">+${this.shopIncomeBonus}</span></div>
                 <div>Build Discount: <span style="color: #3388ff">${Math.round((1 - this.buildDiscount) * 100)}%</span></div>
                 <div>Attraction Multiplier: <span style="color: #ff5733">x${this.attractionBonusMultiplier}</span></div>
                 <div>Break Chance: <span style="color: #ffcc00">${(this.breakChance * 100).toFixed(2)}%</span></div>
+                
+                <div style="margin-top: 10px;"><strong>Modificadores Económicos:</strong></div>
+                <div>Registrados: <span style="color: #ff00ff">${modifierInfo.totalModifiers}</span></div>
+                <div>Activos: <span style="color: #00ff00">${modifierInfo.activeModifiers}</span></div>
+                <div>Casillas Económicas: <span style="color: #ffaa00">${modifierInfo.totalEconomicTiles}</span></div>
             `;
         }
 
@@ -335,13 +369,50 @@ class MainScene extends Phaser.Scene {
                     totalIncome += incomeData.final;
                     hasEntities = true;
 
+                    const diversityInfo = incomeData.diversityBonus > 0 ? 
+                        ` + Div:${incomeData.diversityBonus}` : '';
+
                     const row = `
                         <tr style="background: #2a2a2a;">
                             <td>${entity.name}</td>
                             <td>${entity.tileX},${entity.tileY}</td>
                             <td>${incomeData.base} (E:${entity.excitement})</td>
-                            <td>${Math.round(incomeData.decayFactor * 100)}%</td>
+                            <td>${Math.round(incomeData.decayFactor * 100)}%${diversityInfo}</td>
                             <td>${incomeData.final}</td>
+                        </tr>
+                    `;
+                    tbody.insertAdjacentHTML('beforeend', row);
+                } else if (entity instanceof Restroom) {
+                    const incomeData = this.economyManager.calculateRestroomIncome(entity);
+                    totalIncome += incomeData.final;
+                    hasEntities = true;
+
+                    const proximityStatus = incomeData.nearShop && incomeData.nearAttraction ? 
+                        'Tienda + Atracción' : incomeData.nearShop ? 'Solo Tienda' : incomeData.nearAttraction ? 'Solo Atracción' : 'Sin Proximidad';
+
+                    const row = `
+                        <tr style="background: #1a3a3a;">
+                            <td>${entity.name}</td>
+                            <td>${entity.tileX},${entity.tileY}</td>
+                            <td>${incomeData.base}</td>
+                            <td>${proximityStatus}</td>
+                            <td>${incomeData.final}</td>
+                        </tr>
+                    `;
+                    tbody.insertAdjacentHTML('beforeend', row);
+                } else if (entity instanceof NeonSign) {
+                    // GE-3: Mostrar información de objetos modificadores
+                    const debugInfo = entity.getDebugInfo();
+                    const economicTiles = entity.getEconomicTiles();
+                    hasEntities = true;
+
+                    const row = `
+                        <tr style="background: #3a1a3a;">
+                            <td>${entity.name}</td>
+                            <td>${entity.tileX},${entity.tileY}</td>
+                            <td>Brillo: ${debugInfo.brightness}</td>
+                            <td>${debugInfo.working ? 'Funcionando' : 'Averiada'}</td>
+                            <td>${economicTiles.length} tiles</td>
                         </tr>
                     `;
                     tbody.insertAdjacentHTML('beforeend', row);
